@@ -49,4 +49,18 @@ const DigitalStatsBoard: React.FC<DigitalStatsBoardProps> = ({ stats }) => {
             <div className="flex flex-col border-l-0 md:border-l border-white/5 md:pl-16 relative">
               <div className="absolute -inset-4 md:-inset-8 bg-violet-500/10 blur-[30px] md:blur-[50px] rounded-full pointer-events-none"></div>
               
-              <span className="text-[10px] md:text-[12px] font-black text-violet-400 uppercase tracking-[0.5em] mb-2 md:mb-4 flex items-center gap-2 relative z-10
+              <span className="text-[10px] md:text-[12px] font-black text-violet-400 uppercase tracking-[0.5em] mb-2 md:mb-4 flex items-center gap-2 relative z-10">
+                <Zap className="w-4 h-4 md:w-5 md:h-5 animate-pulse" /> TOTAL REMAINING
+              </span>
+              <span className="text-5xl xs:text-6xl sm:text-7xl lg:text-9xl font-black text-violet-400 tabular-nums italic drop-shadow-[0_0_40px_rgba(167,139,250,0.7)] animate-pulse tracking-tighter relative z-10 leading-none">
+                {total?.balance || 0}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default DigitalStatsBoard;
