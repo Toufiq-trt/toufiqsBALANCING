@@ -20,7 +20,8 @@ import {
   LogOut,
   User as UserIcon,
   ChevronDown,
-  Loader2
+  Loader2,
+  Facebook
 } from 'lucide-react';
 
 const DigitalClock = () => {
@@ -41,14 +42,6 @@ const DigitalClock = () => {
       </div>
     </div>
   );
-};
-
-// Restored individual cluster IDs
-const SHEET_CONFIG: Record<InventoryCategory, { id: string }> = {
-  'DEBIT CARD': { id: '1e_22aHpRoJYBe9J0ohT-PzwHmXGhrOtNlsQeOVHg67M' },
-  'CHEQUE BOOK': { id: '1cakIYc79gR-YVnqKe4-i8J95AEuIKa4Q' },
-  'DPS SLIP': { id: '1Ah7wHvJDbzAF9VUJLlBs6YHKfInY6ZWeXlmyZtlUj9Q' },
-  'PIN': { id: '1voTnPN_6crhBoev-5mLg9pLRMREWp7alpMNM8SwhL6k' }
 };
 
 const App: React.FC = () => {
@@ -100,7 +93,7 @@ const App: React.FC = () => {
     if (!user && currentPath === 'dashboard') {
       const stats = getFullStats();
       return (
-        <div className="max-w-6xl mx-auto space-y-8 md:space-y-12 pb-24">
+        <div className="max-w-6xl mx-auto space-y-8 md:space-y-12 pb-24 px-4 md:px-0">
           <MasterSearch items={items} />
           <DigitalStatsBoard stats={stats} />
           <DashboardGrid stats={stats} />
@@ -112,18 +105,26 @@ const App: React.FC = () => {
       if (currentPath === 'master-data') return <MasterDataView items={items} user={user} />;
       if (currentPath === 'settings') return <ProfileSettings user={user} onUpdate={(u) => setUser({...user, ...u})} onClose={() => setCurrentPath('master-data')} />;
       if (currentPath === 'archive') {
-        return <InventoryTable title="DELIVERED ITEMS" category="DEBIT CARD" items={items.filter(i => i.isDelivered)} allStoredItems={items} isArchive onDelete={user.role === 'super_admin' ? deleteItem : undefined} user={user} />;
+        return <InventoryTable title="DELIVERED ITEMS" category="DEBIT CARD" items={items.filter(i => i.isDelivered)} allStoredItems={items} isArchive onDelete={deleteItem} user={user} />;
       }
       if (currentPath.startsWith('inventory-')) {
         const category = currentPath.replace('inventory-', '') as InventoryCategory;
         const filteredItems = items.filter(i => i.category === category && !i.isDelivered);
         const canEdit = user.role === 'super_admin' || user.allowedCategory === category;
+        
         return (
           <InventoryTable 
-            title={`${category} REGISTRY`} category={category} items={filteredItems} allStoredItems={items}
-            onDeliver={canEdit ? deliverItem : undefined} onDelete={canEdit ? deleteItem : undefined}
-            onAdd={canEdit ? addItem : undefined} onUpdate={canEdit ? updateItem : undefined}
-            onSyncSheet={canEdit ? syncFromGoogleSheet : undefined} user={user} readOnly={!canEdit}
+            title={`${category} REGISTRY`} 
+            category={category} 
+            items={filteredItems} 
+            allStoredItems={items}
+            onDeliver={canEdit ? deliverItem : undefined} 
+            onDelete={canEdit ? deleteItem : undefined}
+            onAdd={canEdit ? addItem : undefined} 
+            onUpdate={canEdit ? updateItem : undefined}
+            onSyncSheet={canEdit ? syncFromGoogleSheet : undefined} 
+            user={user} 
+            readOnly={!canEdit}
           />
         );
       }
@@ -134,8 +135,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#09090b] selection:bg-violet-500/30">
-      <header className="fixed top-0 left-0 right-0 h-16 md:h-24 glass border-b border-white/5 z-[60] px-4 md:px-8 flex items-center justify-between shadow-2xl">
+    <div className="min-h-screen bg-[#09090b] selection:bg-violet-500/30 overflow-x-hidden">
+      <header className="fixed top-0 left-0 right-0 h-20 md:h-24 glass border-b border-white/5 z-[60] px-4 md:px-8 flex items-center justify-between shadow-2xl">
         <div className="flex items-center gap-3 md:gap-6">
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
@@ -143,14 +144,31 @@ const App: React.FC = () => {
           >
             {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
-          <div className="flex items-center gap-2 md:gap-4 cursor-pointer" onClick={() => !user && setCurrentPath('dashboard')}>
-            <div className="w-8 h-8 md:w-12 md:h-12 rounded-lg md:rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg">
-              <ShieldCheck className="w-5 h-5 md:w-7 md:h-7 text-white" />
+          
+          <div className="flex items-center gap-3 md:gap-4">
+            <div 
+              className="flex items-center gap-2 md:gap-4 cursor-pointer" 
+              onClick={() => !user && setCurrentPath('dashboard')}
+            >
+              <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg border border-white/10">
+                <ShieldCheck className="w-5 h-5 md:w-7 md:h-7 text-white" />
+              </div>
+              <div className="flex flex-col justify-center">
+                <h1 className="text-sm md:text-xl font-black tracking-tighter text-white uppercase italic leading-none">TOUFIQ'S</h1>
+                <p className="text-[9px] md:text-xs font-black text-violet-400 uppercase tracking-widest mt-1 leading-none">BALANCING SYSTEM</p>
+              </div>
             </div>
-            <div className="hidden sm:block">
-              <h1 className="text-sm md:text-xl font-black tracking-tighter text-white uppercase italic leading-none">TOUFIQ'S</h1>
-              <p className="text-[7px] md:text-[10px] font-black text-violet-400 uppercase tracking-[0.2em] mt-1 leading-none">BALANCING SYSTEM</p>
-            </div>
+
+            {/* Same-size Facebook Profile Icon as the Top Right Profile Button */}
+            <a 
+               href="https://www.facebook.com/toufiqurahmantareq/" 
+               target="_blank" 
+               rel="noopener noreferrer" 
+               className="w-10 h-10 md:w-12 md:h-12 bg-zinc-900 border border-white/10 rounded-xl md:rounded-2xl flex items-center justify-center text-zinc-400 hover:text-[#1877F2] hover:bg-[#1877F2]/10 transition-all active:scale-90"
+               title="Visit Toufiq's Facebook"
+            >
+               <Facebook className="w-5 h-5 md:w-6 md:h-6" />
+            </a>
           </div>
         </div>
 
@@ -165,8 +183,8 @@ const App: React.FC = () => {
                 <div className="text-right hidden sm:block">
                   <p className="text-[9px] md:text-[10px] font-black text-white uppercase italic tracking-widest leading-none">{user.fullName}</p>
                 </div>
-                <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-zinc-800 border border-white/5 flex items-center justify-center text-zinc-400 overflow-hidden">
-                  {user.profilePicture ? <img src={user.profilePicture} className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 md:w-5 md:h-5" />}
+                <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-zinc-800 border border-white/5 flex items-center justify-center text-zinc-400 overflow-hidden shadow-inner">
+                  {user.profilePicture ? <img src={user.profilePicture} className="w-full h-full object-cover" /> : <UserIcon className="w-5 h-5 md:w-6 md:h-6" />}
                 </div>
               </button>
               {showProfileMenu && (
@@ -182,22 +200,22 @@ const App: React.FC = () => {
               )}
             </div>
           ) : (
-            <button onClick={() => setCurrentPath('login')} className="px-4 py-2 md:px-8 md:py-3 bg-white text-black text-[9px] md:text-[11px] font-black rounded-lg md:rounded-2xl hover:scale-105 active:scale-95 transition-all uppercase tracking-widest shadow-xl">
+            <button onClick={() => setCurrentPath('login')} className="px-5 py-3 md:px-8 md:py-4 bg-white text-black text-[10px] md:text-xs font-black rounded-xl md:rounded-2xl hover:scale-105 active:scale-95 transition-all uppercase tracking-widest shadow-xl">
               Admin Portal
             </button>
           )}
         </div>
       </header>
 
-      <div className="flex pt-16 md:pt-24">
+      <div className="flex pt-20 md:pt-24">
         {user && isSidebarOpen && (
-          <aside className="w-64 md:w-72 glass border-r border-white/5 h-[calc(100vh-64px)] md:h-[calc(100vh-96px)] fixed left-0 top-16 md:top-24 z-50 p-4 md:p-6 space-y-6 md:space-y-8 animate-in slide-in-from-left">
+          <aside className="w-64 md:w-72 glass border-r border-white/5 h-[calc(100vh-80px)] md:h-[calc(100vh-96px)] fixed left-0 top-20 md:top-24 z-50 p-4 md:p-6 space-y-6 md:space-y-8 animate-in slide-in-from-left">
             <div className="space-y-2">
               <p className="px-4 text-[9px] font-black text-zinc-600 uppercase tracking-[0.3em] mb-2 md:mb-4">Infrastructure</p>
-              <button onClick={() => { setCurrentPath('master-data'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-3 md:py-4 rounded-xl md:rounded-2xl transition-all text-[10px] md:text-[11px] font-black uppercase tracking-widest ${currentPath === 'master-data' ? 'bg-violet-600 text-white' : 'text-zinc-500 hover:bg-white/5'}`}>
+              <button onClick={() => { setCurrentPath('master-data'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-3 md:py-4 rounded-xl md:rounded-2xl transition-all text-[10px] md:text-[11px] font-black uppercase tracking-widest ${currentPath === 'master-data' ? 'bg-violet-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
                 <Layers className="w-4 h-4 md:w-5 md:h-5" /> MASTER DATA
               </button>
-              <button onClick={() => { setCurrentPath('archive'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-3 md:py-4 rounded-xl md:rounded-2xl transition-all text-[10px] md:text-[11px] font-black uppercase tracking-widest ${currentPath === 'archive' ? 'bg-violet-600 text-white' : 'text-zinc-500 hover:bg-white/5'}`}>
+              <button onClick={() => { setCurrentPath('archive'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-3 md:py-4 rounded-xl md:rounded-2xl transition-all text-[10px] md:text-[11px] font-black uppercase tracking-widest ${currentPath === 'archive' ? 'bg-violet-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
                 <Archive className="w-4 h-4 md:w-5 md:h-5" /> DELIVERED
               </button>
             </div>
@@ -212,7 +230,7 @@ const App: React.FC = () => {
           </aside>
         )}
 
-        <main className={`flex-1 min-h-[calc(100vh-64px)] md:min-h-[calc(100vh-96px)] p-4 md:p-10 transition-all duration-300 ${user && isSidebarOpen ? 'lg:ml-72' : 'w-full'}`}>
+        <main className={`flex-1 min-h-[calc(100vh-80px)] md:min-h-[calc(100vh-96px)] p-4 md:p-10 transition-all duration-300 ${user && isSidebarOpen ? 'lg:ml-72' : 'w-full'}`}>
           {renderContent()}
         </main>
       </div>
