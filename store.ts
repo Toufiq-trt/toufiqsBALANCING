@@ -1,9 +1,9 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { InventoryItem, InventoryCategory } from './types';
 import { CATEGORIES } from './constants';
 
 const STORAGE_KEY = 'toufiq_balancing_v4';
+const UPDATE_KEY = 'toufiq_last_update_v1';
 const MASTER_SHEET_ID = '1h7Nmn8alVoWNE_vn3690-yWMvRcXs93_9VXONaAA4po';
 
 const SHEET_CONFIG: Record<InventoryCategory, { id: string }> = {
@@ -49,12 +49,27 @@ export const useInventoryStore = () => {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? JSON.parse(saved) : [];
   });
+  
+  const [lastUpdate, setLastUpdate] = useState<string>(() => {
+    return localStorage.getItem(UPDATE_KEY) || "SYSTEM INITIALIZED";
+  });
+
   const [isInitializing, setIsInitializing] = useState(true);
+
+  const formatUpdateString = (category: string) => {
+    const now = new Date();
+    const time = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+    const day = now.toLocaleDateString([], { weekday: 'long' }).toUpperCase();
+    const month = now.toLocaleDateString([], { month: 'long' }).toUpperCase();
+    const year = now.getFullYear();
+    const str = `${category} ENTRY AT ${time} ${day} ${month} ${year}`;
+    setLastUpdate(str);
+    localStorage.setItem(UPDATE_KEY, str);
+  };
 
   const calculateDestroyDate = (receiveDate: string) => {
     const date = new Date(receiveDate);
     if (isNaN(date.getTime())) return new Date().toISOString().split('T')[0];
-    // Rule Change: Expiry is 3 months from receive date
     date.setMonth(date.getMonth() + 3);
     return date.toISOString().split('T')[0];
   };
@@ -74,8 +89,11 @@ export const useInventoryStore = () => {
       const headers = rows[0].map(h => normalizeHeader(h));
       const today = new Date().toISOString().split('T')[0];
       
+      let itemsAdded = false;
+
       setItems(prev => {
         const updatedList = [...prev];
+        const initialCount = updatedList.length;
         
         for (let i = 1; i < rows.length; i++) {
           const rowData = rows[i];
@@ -118,20 +136,27 @@ export const useInventoryStore = () => {
 
           if (existingIndex > -1) {
             const existingItem = updatedList[existingIndex];
-            // STICKY TRASH: If item is ALREADY trashed, do not un-trash it via sync
             if (existingItem.isTrashed) continue;
-
             const finalDelivered = existingItem.isDelivered || sheetIsDelivered;
             const finalDeliveryDate = sheetIsDelivered ? sheetDeliveryDate : existingItem.deliveryDate;
-
             updatedList[existingIndex] = { ...existingItem, ...itemData, isDelivered: finalDelivered, deliveryDate: finalDeliveryDate };
           } else {
             updatedList.push({ id: crypto.randomUUID(), isDelivered: sheetIsDelivered, deliveryDate: sheetIsDelivered ? sheetDeliveryDate : undefined, isTrashed: false, ...itemData as InventoryItem });
           }
         }
+
+        if (updatedList.length > initialCount) {
+          itemsAdded = true;
+        }
+
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedList));
         return updatedList;
       });
+
+      if (itemsAdded) {
+        formatUpdateString(category === 'MASTER_DATA' ? 'MASTER' : category);
+      }
+
       return { success: true };
     } catch (e) {
       console.error(`Sync Engine Error [${category}]:`, e);
@@ -164,6 +189,7 @@ export const useInventoryStore = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
+    formatUpdateString(item.category || "MANUAL");
   };
 
   const updateItem = (id: string, updates: any) => {
@@ -180,8 +206,6 @@ export const useInventoryStore = () => {
     });
   };
 
-  // Rule Change: Silent delete to Trash Bin. 
-  // confirmation only on permanent delete from trash bin.
   const trashItem = (id: string) => {
     setItems(prev => {
       const updated = prev.map(item => item.id === id ? { ...item, isTrashed: true } : item);
@@ -208,7 +232,6 @@ export const useInventoryStore = () => {
   };
 
   const getFullStats = () => {
-    // Only count non-trashed items for dashboard stats
     const activeItems = items.filter(i => !i.isTrashed);
     return CATEGORIES.map(cat => {
       const catItems = activeItems.filter(i => i.category === cat);
@@ -224,5 +247,5 @@ export const useInventoryStore = () => {
     }] as any);
   };
 
-  return { items, isInitializing, deliverItem, addItem, updateItem, trashItem, restoreItem, deleteItemPermanently, getFullStats, syncFromGoogleSheet };
+  return { items, isInitializing, lastUpdate, deliverItem, addItem, updateItem, trashItem, restoreItem, deleteItemPermanently, getFullStats, syncFromGoogleSheet };
 };

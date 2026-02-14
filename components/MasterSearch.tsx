@@ -12,7 +12,7 @@ const MasterSearch: React.FC<MasterSearchProps> = ({ items = [] }) => {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [placeholder, setPlaceholder] = useState('');
-  const fullText = "SEARCH YOUR DOCUMENT POWERED BY TOUFIQ...";
+  const fullText = "SEARCH POWERED BY TOUFIQ";
 
   useEffect(() => {
     let index = 0;
@@ -119,7 +119,7 @@ const MasterSearch: React.FC<MasterSearchProps> = ({ items = [] }) => {
                             IN BRANCH
                           </div>
                         )}
-                        <span className="text-[8px] md:text-[10px] text-zinc-600 font-bold uppercase">{item.phoneNumber}</span>
+                        {/* Phone number removed for privacy in search results */}
                       </div>
                     </div>
                   </div>
