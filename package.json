@@ -1,4 +1,3 @@
-
 {
   "name": "balancing-by-toufiq",
   "private": true,
@@ -15,7 +14,7 @@
     "lucide-react": "^0.468.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.1/xlsx-0.20.1.tgz"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.3.1",

@@ -14,7 +14,20 @@ const SHEET_CONFIG: Record<InventoryCategory, { id: string }> = {
 };
 
 export const useInventoryStore = () => {
-  const [items, setItems] = useState<InventoryItem[]>([]);
+  // 1. LAZY INITIALIZATION: Load from localStorage immediately on app start
+  const [items, setItems] = useState<InventoryItem[]>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        console.error("Failed to parse local storage", e);
+        return [];
+      }
+    }
+    return [];
+  });
+
   const [isInitializing, setIsInitializing] = useState(true);
 
   const calculateDestroyDate = (receiveDate: string) => {
@@ -23,6 +36,8 @@ export const useInventoryStore = () => {
     date.setFullYear(date.getFullYear() + 3);
     return date.toISOString().split('T')[0];
   };
+
+  const normalizeAC = (ac: string) => ac.trim().toLowerCase();
 
   const parseCSV = (text: string) => {
     const rows: string[][] = [];
@@ -94,11 +109,12 @@ export const useInventoryStore = () => {
 
       if (batchEntries.length > 0) {
         setItems(prev => {
+          // PROTECTED UPDATE: Only add items that don't exist in any state (Active or Delivered)
+          const existingKeys = new Set(prev.map(i => `${normalizeAC(i.accountNumber)}_${i.category}`));
           const finalItemsToAdd: InventoryItem[] = [];
-          const existingKeys = new Set(prev.map(i => `${i.accountNumber.trim().toLowerCase()}_${i.category}`));
 
           batchEntries.forEach(newItem => {
-            const uniqueKey = `${newItem.accountNumber.trim().toLowerCase()}_${newItem.category}`;
+            const uniqueKey = `${normalizeAC(newItem.accountNumber)}_${newItem.category}`;
             if (!existingKeys.has(uniqueKey)) {
               existingKeys.add(uniqueKey);
               finalItemsToAdd.push({
@@ -111,7 +127,11 @@ export const useInventoryStore = () => {
               });
             }
           });
-          return finalItemsToAdd.length === 0 ? prev : [...prev, ...finalItemsToAdd];
+          
+          const updated = finalItemsToAdd.length === 0 ? prev : [...prev, ...finalItemsToAdd];
+          // Immediate disk write for safety
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          return updated;
         });
         return { success: true, count: batchEntries.length };
       }
@@ -121,16 +141,10 @@ export const useInventoryStore = () => {
     }
   }, []);
 
-  // AUTO SYNC ALL CLUSTERS ON EVERY PAGE RELOAD
+  // INITIALIZATION EFFECT
   useEffect(() => {
     const initData = async () => {
-      // 1. Load manual/existing data from localStorage first
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        try { setItems(JSON.parse(stored)); } catch (e) { setItems([]); }
-      }
-      
-      // 2. Perform Instant Global Sync from all sheet sources
+      // Perform Global Sync
       const syncPromises = [
         syncFromGoogleSheet(MASTER_SHEET_ID, 'MASTER_DATA' as any),
         ...CATEGORIES.map(cat => syncFromGoogleSheet(SHEET_CONFIG[cat].id, cat))
@@ -142,6 +156,7 @@ export const useInventoryStore = () => {
     initData();
   }, [syncFromGoogleSheet]);
 
+  // Backup effect for standard state changes
   useEffect(() => {
     if (!isInitializing) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
@@ -151,7 +166,7 @@ export const useInventoryStore = () => {
   const addItem = useCallback((item: Omit<InventoryItem, 'id' | 'destroyDate' | 'isDelivered'>) => {
     setItems(prev => {
       const isDuplicate = prev.some(i => 
-        i.accountNumber.trim().toLowerCase() === item.accountNumber.trim().toLowerCase() && 
+        normalizeAC(i.accountNumber) === normalizeAC(item.accountNumber) && 
         i.category === item.category
       );
       if (isDuplicate) return prev;
@@ -164,32 +179,47 @@ export const useInventoryStore = () => {
         destroyDate: calculateDestroyDate(item.receiveDate),
         isDelivered: false
       };
-      return [...prev, newItem];
+      const updated = [...prev, newItem];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
     });
   }, []);
 
   const updateItem = useCallback((id: string, updates: Partial<Omit<InventoryItem, 'id' | 'destroyDate' | 'isDelivered'>>) => {
-    setItems(prev => prev.map(item => {
-      if (item.id === id) {
-        const formattedUpdates = { ...updates };
-        if (updates.customerName) formattedUpdates.customerName = updates.customerName.trim().toUpperCase();
-        if (updates.address) formattedUpdates.address = updates.address.trim().toUpperCase();
-        const updatedItem = { ...item, ...formattedUpdates };
-        if (updates.receiveDate) updatedItem.destroyDate = calculateDestroyDate(updates.receiveDate);
-        return updatedItem;
-      }
-      return item;
-    }));
+    setItems(prev => {
+      const updated = prev.map(item => {
+        if (item.id === id) {
+          const formattedUpdates = { ...updates };
+          if (updates.customerName) formattedUpdates.customerName = updates.customerName.trim().toUpperCase();
+          if (updates.address) formattedUpdates.address = updates.address.trim().toUpperCase();
+          const updatedItem = { ...item, ...formattedUpdates };
+          if (updates.receiveDate) updatedItem.destroyDate = calculateDestroyDate(updates.receiveDate);
+          return updatedItem;
+        }
+        return item;
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
   }, []);
 
   const deliverItem = useCallback((id: string, deliveryDate: string) => {
-    setItems(prev => prev.map(item => 
-      item.id === id ? { ...item, deliveryDate, isDelivered: true } : item
-    ));
+    setItems(prev => {
+      const updated = prev.map(item => 
+        item.id === id ? { ...item, deliveryDate, isDelivered: true } : item
+      );
+      // HARD PERSISTENCE: Save to disk immediately on delivery action
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
   }, []);
 
   const deleteItem = useCallback((id: string) => {
-    setItems(prev => prev.filter(item => item.id !== id));
+    setItems(prev => {
+      const updated = prev.filter(item => item.id !== id);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
   }, []);
 
   const getFullStats = useCallback(() => {
