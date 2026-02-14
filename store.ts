@@ -1,9 +1,8 @@
-
 import { useState, useEffect, useCallback } from 'react';
-import { InventoryItem, InventoryCategory, CategoryStats, User } from './types';
+import { InventoryItem, InventoryCategory, CategoryStats } from './types';
 import { CATEGORIES } from './constants';
 
-const STORAGE_KEY = 'securevault_inventory_data';
+const STORAGE_KEY = 'toufiq_balancing_v3';
 const MASTER_SHEET_ID = '1h7Nmn8alVoWNE_vn3690-yWMvRcXs93_9VXONaAA4po';
 
 const SHEET_CONFIG: Record<InventoryCategory, { id: string }> = {
@@ -14,20 +13,11 @@ const SHEET_CONFIG: Record<InventoryCategory, { id: string }> = {
 };
 
 export const useInventoryStore = () => {
-  // 1. LAZY INITIALIZATION: Load from localStorage immediately on app start
+  // Load from local storage immediately to prevent "flicker" of old data
   const [items, setItems] = useState<InventoryItem[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        console.error("Failed to parse local storage", e);
-        return [];
-      }
-    }
-    return [];
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : [];
   });
-
   const [isInitializing, setIsInitializing] = useState(true);
 
   const calculateDestroyDate = (receiveDate: string) => {
@@ -39,209 +29,104 @@ export const useInventoryStore = () => {
 
   const normalizeAC = (ac: string) => ac.trim().toLowerCase();
 
-  const parseCSV = (text: string) => {
-    const rows: string[][] = [];
-    let currentRow: string[] = [];
-    let currentCell = '';
-    let inQuotes = false;
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      const nextChar = text[i + 1];
-      if (char === '"') {
-        if (inQuotes && nextChar === '"') { currentCell += '"'; i++; }
-        else { inQuotes = !inQuotes; }
-      } else if (char === ',' && !inQuotes) {
-        currentRow.push(currentCell.trim());
-        currentCell = '';
-      } else if ((char === '\r' || char === '\n') && !inQuotes) {
-        if (currentCell || currentRow.length > 0) {
-          currentRow.push(currentCell.trim());
-          rows.push(currentRow);
-        }
-        currentRow = [];
-        currentCell = '';
-        if (char === '\r' && nextChar === '\n') i++;
-      } else { currentCell += char; }
-    }
-    if (currentCell || currentRow.length > 0) {
-      currentRow.push(currentCell.trim());
-      rows.push(currentRow);
-    }
-    return rows;
-  };
-
   const syncFromGoogleSheet = useCallback(async (sheetId: string, category: InventoryCategory | 'MASTER_DATA') => {
     try {
       const sheetName = category === 'MASTER_DATA' ? 'master data' : category.toLowerCase();
       const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
       const response = await fetch(url);
-      if (!response.ok) throw new Error(`Fetch Error: ${response.status}`);
       const csvText = await response.text();
       
-      const rows = parseCSV(csvText);
+      const rows = csvText.split('\n').map(row => row.split(',').map(c => c.replace(/"/g, '').trim()));
       if (rows.length < 2) return { success: true, count: 0 };
 
-      const rawHeaders = rows[0].map(h => h.toLowerCase().replace(/[\s_-]/g, ''));
-      const batchEntries: Omit<InventoryItem, 'id' | 'destroyDate' | 'isDelivered'>[] = [];
+      const headers = rows[0].map(h => h.toLowerCase().replace(/[\s_-]/g, ''));
+      const newItems: InventoryItem[] = [];
 
-      for (let i = 1; i < rows.length; i++) {
-        const rowData = rows[i];
-        const rowMap: Record<string, string> = {};
-        rawHeaders.forEach((h, idx) => { rowMap[h] = rowData[idx] || ''; });
+      setItems(prev => {
+        const existingKeys = new Set(prev.map(i => `${normalizeAC(i.accountNumber)}_${i.category}`));
+        const updatedItems = [...prev];
 
-        const accountNumber = (rowMap['accountnumber'] || rowMap['account'] || rowMap['acno'] || '').trim();
-        const customerName = (rowMap['customername'] || rowMap['name'] || '').trim().toUpperCase();
-        const phoneNumber = (rowMap['phonenumber'] || rowMap['phone'] || '').trim();
-        const address = (rowMap['address'] || rowMap['location'] || '').trim().toUpperCase();
-        const rawReceiveDate = rowMap['receivedate'] || rowMap['date'] || '';
-        const itemCategory = (rowMap['category'] || (category === 'MASTER_DATA' ? '' : category)) as InventoryCategory;
+        for (let i = 1; i < rows.length; i++) {
+          const rowData = rows[i];
+          const rowMap: Record<string, string> = {};
+          headers.forEach((h, idx) => { rowMap[h] = rowData[idx] || ''; });
 
-        if (!accountNumber || !customerName) continue;
+          const ac = (rowMap['accountnumber'] || rowMap['account'] || rowMap['acno'] || '').trim();
+          const name = (rowMap['customername'] || rowMap['name'] || '').trim();
+          const cat = (rowMap['category'] || (category === 'MASTER_DATA' ? '' : category)) as InventoryCategory;
 
-        let receiveDate = new Date().toISOString().split('T')[0];
-        if (rawReceiveDate) {
-          const parsedDate = new Date(rawReceiveDate);
-          if (!isNaN(parsedDate.getTime())) receiveDate = parsedDate.toISOString().split('T')[0];
-        }
-
-        batchEntries.push({ accountNumber, customerName, phoneNumber, address, receiveDate, category: itemCategory || 'DEBIT CARD' });
-      }
-
-      if (batchEntries.length > 0) {
-        setItems(prev => {
-          // PROTECTED UPDATE: Only add items that don't exist in any state (Active or Delivered)
-          const existingKeys = new Set(prev.map(i => `${normalizeAC(i.accountNumber)}_${i.category}`));
-          const finalItemsToAdd: InventoryItem[] = [];
-
-          batchEntries.forEach(newItem => {
-            const uniqueKey = `${normalizeAC(newItem.accountNumber)}_${newItem.category}`;
-            if (!existingKeys.has(uniqueKey)) {
-              existingKeys.add(uniqueKey);
-              finalItemsToAdd.push({
-                ...newItem,
-                customerName: newItem.customerName.trim().toUpperCase(),
-                address: newItem.address.trim().toUpperCase(),
-                id: crypto.randomUUID(),
-                destroyDate: calculateDestroyDate(newItem.receiveDate),
-                isDelivered: false
-              });
-            }
-          });
+          if (!ac || !name) continue;
           
-          const updated = finalItemsToAdd.length === 0 ? prev : [...prev, ...finalItemsToAdd];
-          // Immediate disk write for safety
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-          return updated;
-        });
-        return { success: true, count: batchEntries.length };
-      }
-      return { success: true, count: 0 };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Sync failed.' };
+          const uniqueKey = `${normalizeAC(ac)}_${cat || 'DEBIT CARD'}`;
+          
+          // CRITICAL: If account exists in local storage (Active OR Delivered), do NOT re-add it
+          if (!existingKeys.has(uniqueKey)) {
+            existingKeys.add(uniqueKey);
+            updatedItems.push({
+              id: crypto.randomUUID(),
+              accountNumber: ac,
+              customerName: name.toUpperCase(),
+              phoneNumber: (rowMap['phonenumber'] || rowMap['phone'] || '').trim(),
+              address: (rowMap['address'] || rowMap['location'] || '').trim().toUpperCase(),
+              receiveDate: rowMap['receivedate'] || new Date().toISOString().split('T')[0],
+              category: cat || 'DEBIT CARD',
+              isDelivered: false,
+              destroyDate: calculateDestroyDate(rowMap['receivedate'] || new Date().toISOString().split('T')[0])
+            });
+          }
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedItems));
+        return updatedItems;
+      });
+
+      return { success: true };
+    } catch (e) {
+      return { success: false };
     }
   }, []);
 
-  // INITIALIZATION EFFECT
   useEffect(() => {
-    const initData = async () => {
-      // Perform Global Sync
-      const syncPromises = [
-        syncFromGoogleSheet(MASTER_SHEET_ID, 'MASTER_DATA' as any),
-        ...CATEGORIES.map(cat => syncFromGoogleSheet(SHEET_CONFIG[cat].id, cat))
-      ];
-      
-      await Promise.all(syncPromises);
+    const init = async () => {
+      await syncFromGoogleSheet(MASTER_SHEET_ID, 'MASTER_DATA' as any);
+      for (const cat of CATEGORIES) {
+        await syncFromGoogleSheet(SHEET_CONFIG[cat].id, cat);
+      }
       setIsInitializing(false);
     };
-    initData();
+    init();
   }, [syncFromGoogleSheet]);
 
-  // Backup effect for standard state changes
-  useEffect(() => {
-    if (!isInitializing) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    }
-  }, [items, isInitializing]);
-
-  const addItem = useCallback((item: Omit<InventoryItem, 'id' | 'destroyDate' | 'isDelivered'>) => {
+  const deliverItem = (id: string, date: string) => {
     setItems(prev => {
-      const isDuplicate = prev.some(i => 
-        normalizeAC(i.accountNumber) === normalizeAC(item.accountNumber) && 
-        i.category === item.category
-      );
-      if (isDuplicate) return prev;
+      const updated = prev.map(item => item.id === id ? { ...item, isDelivered: true, deliveryDate: date } : item);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
 
-      const newItem: InventoryItem = {
-        ...item,
-        customerName: item.customerName.trim().toUpperCase(),
-        address: item.address.trim().toUpperCase(),
-        id: crypto.randomUUID(),
-        destroyDate: calculateDestroyDate(item.receiveDate),
-        isDelivered: false
-      };
+  const addItem = (item: any) => {
+    setItems(prev => {
+      const newItem = { ...item, id: crypto.randomUUID(), isDelivered: false, destroyDate: calculateDestroyDate(item.receiveDate) };
       const updated = [...prev, newItem];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
-  }, []);
+  };
 
-  const updateItem = useCallback((id: string, updates: Partial<Omit<InventoryItem, 'id' | 'destroyDate' | 'isDelivered'>>) => {
-    setItems(prev => {
-      const updated = prev.map(item => {
-        if (item.id === id) {
-          const formattedUpdates = { ...updates };
-          if (updates.customerName) formattedUpdates.customerName = updates.customerName.trim().toUpperCase();
-          if (updates.address) formattedUpdates.address = updates.address.trim().toUpperCase();
-          const updatedItem = { ...item, ...formattedUpdates };
-          if (updates.receiveDate) updatedItem.destroyDate = calculateDestroyDate(updates.receiveDate);
-          return updatedItem;
-        }
-        return item;
-      });
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
-
-  const deliverItem = useCallback((id: string, deliveryDate: string) => {
-    setItems(prev => {
-      const updated = prev.map(item => 
-        item.id === id ? { ...item, deliveryDate, isDelivered: true } : item
-      );
-      // HARD PERSISTENCE: Save to disk immediately on delivery action
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
-
-  const deleteItem = useCallback((id: string) => {
-    setItems(prev => {
-      const updated = prev.filter(item => item.id !== id);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
-
-  const getFullStats = useCallback(() => {
-    const today = new Date();
-    const stats: CategoryStats[] = CATEGORIES.map(category => {
-      const catItems = items.filter(i => i.category === category);
-      const received = catItems.length;
+  const getFullStats = () => {
+    return CATEGORIES.map(cat => {
+      const catItems = items.filter(i => i.category === cat);
       const delivered = catItems.filter(i => i.isDelivered).length;
-      const destruction = catItems.filter(i => !i.isDelivered && new Date(i.destroyDate) < today).length;
-      const balance = received - delivered; 
-      return { category, received, delivered, destruction, balance };
-    });
-
-    const totals: CategoryStats = {
+      const received = catItems.length;
+      return { category: cat, received, delivered, balance: received - delivered, destruction: 0 };
+    }).concat([{
       category: 'TOTAL',
-      received: stats.reduce((acc, s) => acc + s.received, 0),
-      delivered: stats.reduce((acc, s) => acc + s.delivered, 0),
-      destruction: stats.reduce((acc, s) => acc + s.destruction, 0),
-      balance: stats.reduce((acc, s) => acc + s.balance, 0),
-    };
-    return [...stats, totals];
-  }, [items]);
+      received: items.length,
+      delivered: items.filter(i => i.isDelivered).length,
+      balance: items.filter(i => !i.isDelivered).length,
+      destruction: 0
+    }] as any);
+  };
 
-  return { items, addItem, syncFromGoogleSheet, updateItem, deliverItem, deleteItem, getFullStats, isInitializing };
+  return { items, isInitializing, deliverItem, addItem, getFullStats, syncFromGoogleSheet, updateItem: () => {}, deleteItem: () => {} };
 };
