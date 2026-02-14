@@ -50,8 +50,13 @@ export const useInventoryStore = () => {
     return saved ? JSON.parse(saved) : [];
   });
   
-  const [lastUpdate, setLastUpdate] = useState<string>(() => {
-    return localStorage.getItem(UPDATE_KEY) || "SYSTEM INITIALIZED";
+  const [lastUpdate, setLastUpdate] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem(UPDATE_KEY);
+    try {
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
   });
 
   const [isInitializing, setIsInitializing] = useState(true);
@@ -62,9 +67,13 @@ export const useInventoryStore = () => {
     const day = now.toLocaleDateString([], { weekday: 'long' }).toUpperCase();
     const month = now.toLocaleDateString([], { month: 'long' }).toUpperCase();
     const year = now.getFullYear();
-    const str = `${category} ENTRY AT ${time} ${day} ${month} ${year}`;
-    setLastUpdate(str);
-    localStorage.setItem(UPDATE_KEY, str);
+    const str = `${time} ${day} ${month} ${year}`;
+    
+    setLastUpdate(prev => {
+      const next = { ...prev, [category]: str };
+      localStorage.setItem(UPDATE_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
   const calculateDestroyDate = (receiveDate: string) => {
@@ -90,6 +99,7 @@ export const useInventoryStore = () => {
       const today = new Date().toISOString().split('T')[0];
       
       let itemsAdded = false;
+      const targetCatName = category === 'MASTER_DATA' ? 'MASTER' : category;
 
       setItems(prev => {
         const updatedList = [...prev];
@@ -153,9 +163,23 @@ export const useInventoryStore = () => {
         return updatedList;
       });
 
-      if (itemsAdded) {
-        formatUpdateString(category === 'MASTER_DATA' ? 'MASTER' : category);
-      }
+      // Special Logic: If items were found and no timestamp exists yet, or if genuinely new items were added
+      setLastUpdate(prev => {
+        const currentTimestamp = prev[targetCatName];
+        if (itemsAdded || !currentTimestamp) {
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+          const dayStr = now.toLocaleDateString([], { weekday: 'long' }).toUpperCase();
+          const monthStr = now.toLocaleDateString([], { month: 'long' }).toUpperCase();
+          const yearNum = now.getFullYear();
+          const fullStr = `${timeStr} ${dayStr} ${monthStr} ${yearNum}`;
+          
+          const next = { ...prev, [targetCatName]: fullStr };
+          localStorage.setItem(UPDATE_KEY, JSON.stringify(next));
+          return next;
+        }
+        return prev;
+      });
 
       return { success: true };
     } catch (e) {
@@ -166,8 +190,11 @@ export const useInventoryStore = () => {
 
   useEffect(() => {
     const init = async () => {
+      // Sequence the initialization to avoid UI flickering
       await syncFromGoogleSheet(MASTER_SHEET_ID, 'MASTER_DATA' as any);
-      for (const cat of CATEGORIES) { await syncFromGoogleSheet(SHEET_CONFIG[cat].id, cat); }
+      for (const cat of CATEGORIES) { 
+        await syncFromGoogleSheet(SHEET_CONFIG[cat].id, cat); 
+      }
       setIsInitializing(false);
     };
     init();

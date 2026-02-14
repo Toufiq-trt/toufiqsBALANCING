@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import DashboardGrid from './components/DashboardGrid';
 import MasterSearch from './components/MasterSearch';
@@ -193,7 +194,18 @@ const App: React.FC = () => {
           <DigitalClock />
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 md:gap-4 shrink-0">
+          {/* Facebook Button - High Visibility for Mobile & Desktop */}
+          <a 
+            href="https://www.facebook.com/md.toufiqulislam.712" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="p-2 md:p-4 bg-blue-600/10 border border-blue-600/20 text-blue-500 rounded-xl md:rounded-2xl hover:bg-blue-600 hover:text-white transition-all shadow-lg active:scale-95 flex items-center justify-center"
+            title="Connect with Toufiq"
+          >
+            <Facebook className="w-3.5 h-3.5 md:w-6 md:h-6" />
+          </a>
+
           {user ? (
             <div className="relative">
               <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="flex items-center gap-2 p-1 bg-zinc-900 border border-white/5 rounded-xl hover:border-violet-500/50 transition-all">
