@@ -13,9 +13,17 @@ const SHEET_CONFIG: Record<InventoryCategory, { id: string }> = {
 };
 
 /**
- * Enhanced Fault-Tolerant CSV Parser
- * Handles malformed rows, unclosed quotes, and various line endings (CRLF, LF, CR)
+ * Normalizes account numbers by removing all non-alphanumeric characters.
+ * This ensures "123-456", "123 456", and "123456" are treated as the same record.
  */
+const normalizeAC = (val: string) => String(val || '').toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
+
+/**
+ * Standardizes header names for reliable mapping.
+ */
+const normalizeHeader = (val: string) => 
+  String(val || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
 const parseCSV = (text: string): string[][] => {
   const result: string[][] = [];
   let row: string[] = [];
@@ -52,11 +60,8 @@ const parseCSV = (text: string): string[][] => {
       }
     }
   }
-
-  // Handle last row if file doesn't end with newline
   row.push(cell.trim());
   if (row.some(c => c !== '')) result.push(row);
-
   return result;
 };
 
@@ -74,12 +79,8 @@ export const useInventoryStore = () => {
     return date.toISOString().split('T')[0];
   };
 
-  const normalizeHeader = (val: string) => 
-    String(val || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-
   const syncFromGoogleSheet = useCallback(async (sheetId: string, category: InventoryCategory | 'MASTER_DATA') => {
     try {
-      // Switched to direct /export?format=csv for higher reliability than gviz/tq
       const sheetName = category === 'MASTER_DATA' ? 'master data' : category.toLowerCase();
       const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&sheet=${encodeURIComponent(sheetName)}`;
       
@@ -88,53 +89,54 @@ export const useInventoryStore = () => {
       
       const csvText = await response.text();
       const rows = parseCSV(csvText);
-      
-      // Ensure we have headers and at least one data row
       if (rows.length < 2) return { success: true };
 
       const headers = rows[0].map(h => normalizeHeader(h));
+      const today = new Date().toISOString().split('T')[0];
       
       setItems(prev => {
+        // Deep copy of current state to prevent mutation issues
         const updatedList = [...prev];
-        const today = new Date().toISOString().split('T')[0];
         
         for (let i = 1; i < rows.length; i++) {
           const rowData = rows[i];
           const rowMap: Record<string, string> = {};
           headers.forEach((h, idx) => { rowMap[h] = rowData[idx] || ''; });
 
-          // Comprehensive Account Number Detection
-          // Includes variations like 'A/C', 'Slip No', 'Serial', 'Acc', etc.
-          let ac = (
-            rowMap['accountnumber'] || 
-            rowMap['account'] || 
-            rowMap['acno'] || 
-            rowMap['ac'] || 
-            rowMap['accountno'] || 
-            rowMap['accno'] || 
-            rowMap['acnumber'] || 
-            rowMap['dpsslip'] ||
-            rowMap['dpsno'] ||
-            rowMap['slipno'] ||
-            rowMap['slno'] ||
-            rowMap['serial'] ||
-            ''
+          // Extract Account Number with wide variety of fallback headers
+          let acRaw = (
+            rowMap['accountnumber'] || rowMap['account'] || rowMap['acno'] || 
+            rowMap['ac'] || rowMap['accountno'] || rowMap['accno'] || 
+            rowMap['acnumber'] || rowMap['dpsslip'] || rowMap['dpsno'] || 
+            rowMap['slipno'] || rowMap['slno'] || rowMap['serial'] || ''
           ).trim();
 
-          // SMART FALLBACK: If standard headers fail, check if the first column looks like a number
-          if (!ac && rowData[0] && /^\d+$/.test(rowData[0].trim())) {
-            ac = rowData[0].trim();
+          // Fallback to first column if it's numeric and headers fail
+          if (!acRaw && rowData[0] && /^\d+$/.test(rowData[0].trim())) {
+            acRaw = rowData[0].trim();
           }
           
-          if (!ac) continue; // Still skip truly empty lines
+          if (!acRaw) continue;
 
+          // Normalized for matching
+          const acNorm = normalizeAC(acRaw);
           const targetCategory = (category === 'MASTER_DATA' 
             ? (rowMap['category'] || 'DEBIT CARD').toUpperCase() 
             : category) as InventoryCategory;
           
-          // Identify if record already exists to perform "Upsert"
+          // Delivery status check from 'DELIVERED' column
+          const rawDelivered = (rowMap['delivered'] || '').trim();
+          const sheetIsDelivered = rawDelivered !== '';
+          let sheetDeliveryDate = undefined;
+          
+          if (sheetIsDelivered) {
+            const parsed = new Date(rawDelivered);
+            sheetDeliveryDate = !isNaN(parsed.getTime()) ? parsed.toISOString().split('T')[0] : today;
+          }
+
+          // Search for existing item with normalized AC and category
           const existingIndex = updatedList.findIndex(item => 
-            normalizeHeader(item.accountNumber) === normalizeHeader(ac) && 
+            normalizeAC(item.accountNumber) === acNorm && 
             item.category === targetCategory
           );
 
@@ -142,13 +144,11 @@ export const useInventoryStore = () => {
           let rcvDate = today;
           if (rawRcvDate) {
             const parsed = new Date(rawRcvDate);
-            if (!isNaN(parsed.getTime())) {
-              rcvDate = parsed.toISOString().split('T')[0];
-            }
+            if (!isNaN(parsed.getTime())) rcvDate = parsed.toISOString().split('T')[0];
           }
           
           const itemData: Partial<InventoryItem> = {
-            accountNumber: ac,
+            accountNumber: acRaw,
             customerName: (rowMap['customername'] || rowMap['name'] || rowMap['customer'] || rowMap['client'] || 'UNKNOWN').toUpperCase(),
             phoneNumber: (rowMap['phonenumber'] || rowMap['phone'] || rowMap['mobile'] || rowMap['contact'] || '').trim(),
             address: (rowMap['address'] || rowMap['location'] || rowMap['addr'] || '').trim().toUpperCase(),
@@ -158,13 +158,27 @@ export const useInventoryStore = () => {
           };
 
           if (existingIndex > -1) {
-            // Update existing entry (Preserve local delivery state)
-            updatedList[existingIndex] = { ...updatedList[existingIndex], ...itemData };
+            const existingItem = updatedList[existingIndex];
+            
+            // STICKY PERSISTENCE: If item is ALREADY delivered locally OR via sheet, keep it delivered.
+            // This prevents "un-delivering" items on refresh if the sheet row isn't updated yet.
+            const finalDelivered = existingItem.isDelivered || sheetIsDelivered;
+            
+            // Prioritize sheet's delivery date if it exists, else keep local date.
+            const finalDeliveryDate = sheetIsDelivered ? sheetDeliveryDate : existingItem.deliveryDate;
+
+            updatedList[existingIndex] = { 
+              ...existingItem, 
+              ...itemData,
+              isDelivered: finalDelivered,
+              deliveryDate: finalDeliveryDate
+            };
           } else {
-            // New permanent entry
+            // New record addition
             updatedList.push({
               id: crypto.randomUUID(),
-              isDelivered: false,
+              isDelivered: sheetIsDelivered,
+              deliveryDate: sheetIsDelivered ? sheetDeliveryDate : undefined,
               ...itemData as InventoryItem
             });
           }
@@ -176,15 +190,16 @@ export const useInventoryStore = () => {
 
       return { success: true };
     } catch (e) {
-      console.error(`CRITICAL: Sync Engine Failure for ${category}:`, e);
+      console.error(`Sync Engine Error [${category}]:`, e);
       return { success: false };
     }
   }, []);
 
   useEffect(() => {
     const init = async () => {
-      // Sequential high-priority sync
+      // Step 1: Sync from Master Registry
       await syncFromGoogleSheet(MASTER_SHEET_ID, 'MASTER_DATA' as any);
+      // Step 2: Sync from individual Category Clusters
       for (const cat of CATEGORIES) {
         await syncFromGoogleSheet(SHEET_CONFIG[cat].id, cat);
       }
@@ -195,7 +210,9 @@ export const useInventoryStore = () => {
 
   const deliverItem = (id: string, date: string) => {
     setItems(prev => {
-      const updated = prev.map(item => item.id === id ? { ...item, isDelivered: true, deliveryDate: date } : item);
+      const updated = prev.map(item => 
+        item.id === id ? { ...item, isDelivered: true, deliveryDate: date } : item
+      );
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
@@ -238,7 +255,7 @@ export const useInventoryStore = () => {
   };
 
   const deleteItem = (id: string) => {
-    if (!window.confirm("PERMANENT ACTION: Are you sure you want to purge this record from the portal?")) return;
+    if (!window.confirm("PERMANENT ACTION: Purge this record from local persistence?")) return;
     setItems(prev => {
       const updated = prev.filter(item => item.id !== id);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
