@@ -16,7 +16,8 @@ import {
   MapPin,
   Calendar,
   User as UserIcon,
-  ChevronRight
+  ChevronRight,
+  ExternalLink
 } from 'lucide-react';
 
 interface InventoryTableProps {
@@ -155,10 +156,20 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
 
           {!isArchive && !readOnly && !isTrashBin && (
             <div className="flex items-center gap-2">
-              <button onClick={handleSync} disabled={isSyncing} className="p-3 bg-zinc-900 border border-white/5 rounded-xl text-violet-400 disabled:opacity-50">
+              <a 
+                href={SHEET_EDIT_URL} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="p-3 bg-zinc-900 border border-white/5 rounded-xl text-violet-400 hover:text-white transition-all flex items-center justify-center gap-2"
+                title="Open Entry Sheet"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Entry Sheet</span>
+              </a>
+              <button onClick={handleSync} disabled={isSyncing} className="p-3 bg-zinc-900 border border-white/5 rounded-xl text-violet-400 disabled:opacity-50 hover:text-white transition-all">
                 {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4" />}
               </button>
-              <button onClick={() => setShowForm(!showForm)} className="p-3 bg-violet-600 text-white rounded-xl shadow-lg">
+              <button onClick={() => setShowForm(!showForm)} className="p-3 bg-violet-600 text-white rounded-xl shadow-lg hover:bg-violet-500 transition-all">
                 {showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
               </button>
             </div>
