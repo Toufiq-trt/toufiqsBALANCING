@@ -19,9 +19,9 @@ import {
   Settings,
   LogOut,
   User as UserIcon,
-  ChevronDown,
   Loader2,
-  Facebook
+  Facebook,
+  Trash2
 } from 'lucide-react';
 
 const DigitalClock = () => {
@@ -50,7 +50,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   
-  const { items, addItem, syncFromGoogleSheet, updateItem, deliverItem, deleteItem, getFullStats, isInitializing } = useInventoryStore();
+  const { items, addItem, syncFromGoogleSheet, updateItem, deliverItem, trashItem, restoreItem, deleteItemPermanently, getFullStats, isInitializing } = useInventoryStore();
 
   useEffect(() => {
     const handleResize = () => setIsSidebarOpen(window.innerWidth > 1024);
@@ -79,9 +79,17 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (isInitializing) {
       return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 animate-pulse">
-          <Loader2 className="w-12 h-12 text-violet-500 animate-spin" />
-          <p className="text-zinc-500 text-xs font-black uppercase tracking-[0.4em]">Synchronizing Master Registry...</p>
+        <div className="flex flex-col items-center justify-center min-h-screen bg-black gap-8">
+          <div className="relative">
+            <div className="w-24 h-24 border-4 border-violet-500/20 border-t-violet-500 rounded-full animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <ShieldCheck className="w-10 h-10 text-violet-500 animate-pulse" />
+            </div>
+          </div>
+          <div className="text-center space-y-3">
+            <h2 className="text-white text-xl md:text-2xl font-black uppercase italic tracking-tighter">WELCOME TO TOUFIQS GALLERY</h2>
+            <p className="text-zinc-500 text-sm font-bold uppercase tracking-[0.3em] animate-pulse">অনুগ্রহ করে অপেক্ষা করুন</p>
+          </div>
         </div>
       );
     }
@@ -90,11 +98,14 @@ const App: React.FC = () => {
       return <Login onLogin={handleLoginSuccess} onBack={() => setCurrentPath('dashboard')} />;
     }
 
+    // Filter active items for main screens
+    const activeItems = items.filter(i => !i.isTrashed);
+
     if (!user && currentPath === 'dashboard') {
       const stats = getFullStats();
       return (
         <div className="max-w-6xl mx-auto space-y-8 md:space-y-12 pb-24 px-4 md:px-0">
-          <MasterSearch items={items} />
+          <MasterSearch items={activeItems} />
           <DigitalStatsBoard stats={stats} />
           <DashboardGrid stats={stats} />
         </div>
@@ -102,14 +113,31 @@ const App: React.FC = () => {
     }
 
     if (user) {
-      if (currentPath === 'master-data') return <MasterDataView items={items} user={user} />;
+      if (currentPath === 'master-data') return <MasterDataView items={activeItems} user={user} />;
       if (currentPath === 'settings') return <ProfileSettings user={user} onUpdate={(u) => setUser({...user, ...u})} onClose={() => setCurrentPath('master-data')} />;
-      if (currentPath === 'archive') {
-        return <InventoryTable title="DELIVERED ITEMS" category="DEBIT CARD" items={items.filter(i => i.isDelivered)} allStoredItems={items} isArchive onDelete={deleteItem} user={user} />;
+      
+      if (currentPath === 'trash') {
+        return (
+          <InventoryTable 
+            title="TRASH BIN" 
+            category="DEBIT CARD" 
+            items={items.filter(i => i.isTrashed)} 
+            allStoredItems={items}
+            onDelete={deleteItemPermanently} 
+            onRestore={restoreItem}
+            user={user}
+            isTrashBin
+          />
+        );
       }
+
+      if (currentPath === 'archive') {
+        return <InventoryTable title="DELIVERED ITEMS" category="DEBIT CARD" items={activeItems.filter(i => i.isDelivered)} allStoredItems={items} isArchive onDelete={trashItem} user={user} />;
+      }
+
       if (currentPath.startsWith('inventory-')) {
         const category = currentPath.replace('inventory-', '') as InventoryCategory;
-        const filteredItems = items.filter(i => i.category === category && !i.isDelivered);
+        const filteredItems = activeItems.filter(i => i.category === category && !i.isDelivered);
         const canEdit = user.role === 'super_admin' || user.allowedCategory === category;
         
         return (
@@ -119,7 +147,7 @@ const App: React.FC = () => {
             items={filteredItems} 
             allStoredItems={items}
             onDeliver={canEdit ? deliverItem : undefined} 
-            onDelete={canEdit ? deleteItem : undefined}
+            onDelete={canEdit ? trashItem : undefined}
             onAdd={canEdit ? addItem : undefined} 
             onUpdate={canEdit ? updateItem : undefined}
             onSyncSheet={canEdit ? syncFromGoogleSheet : undefined} 
@@ -128,7 +156,7 @@ const App: React.FC = () => {
           />
         );
       }
-      return <MasterDataView items={items} user={user} />;
+      return <MasterDataView items={activeItems} user={user} />;
     }
     
     return <DashboardGrid stats={getFullStats()} />;
@@ -158,17 +186,7 @@ const App: React.FC = () => {
                 <p className="text-[9px] md:text-xs font-black text-violet-400 uppercase tracking-widest mt-1 leading-none">BALANCING SYSTEM</p>
               </div>
             </div>
-
-            {/* Same-size Facebook Profile Icon as the Top Right Profile Button */}
-            <a 
-               href="https://www.facebook.com/toufiqurahmantareq/" 
-               target="_blank" 
-               rel="noopener noreferrer" 
-               className="w-10 h-10 md:w-12 md:h-12 bg-zinc-900 border border-white/10 rounded-xl md:rounded-2xl flex items-center justify-center text-zinc-400 hover:text-[#1877F2] hover:bg-[#1877F2]/10 transition-all active:scale-90"
-               title="Visit Toufiq's Facebook"
-            >
-               <Facebook className="w-5 h-5 md:w-6 md:h-6" />
-            </a>
+            <a href="https://www.facebook.com/toufiqurahmantareq/" target="_blank" rel="noopener noreferrer" className="w-10 h-10 md:w-12 md:h-12 bg-zinc-900 border border-white/10 rounded-xl md:rounded-2xl flex items-center justify-center text-zinc-400 hover:text-[#1877F2] hover:bg-[#1877F2]/10 transition-all active:scale-90"><Facebook className="w-5 h-5 md:w-6 md:h-6" /></a>
           </div>
         </div>
 
@@ -226,6 +244,9 @@ const App: React.FC = () => {
                   <span className="flex items-center gap-4"><Activity className="w-4 h-4" /> {cat}</span>
                 </button>
               ))}
+              <button onClick={() => { setCurrentPath('trash'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-4 px-5 py-3 md:py-4 rounded-xl md:rounded-2xl transition-all text-[10px] md:text-[11px] font-black uppercase tracking-widest ${currentPath === 'trash' ? 'bg-rose-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
+                <Trash2 className="w-4 h-4 md:w-5 md:h-5" /> TRASH BIN
+              </button>
             </div>
           </aside>
         )}

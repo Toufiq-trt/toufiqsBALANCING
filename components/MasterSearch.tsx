@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { InventoryItem } from '../types';
 import { CATEGORY_COLORS } from '../constants';
-import { Search, CornerDownLeft, User, Calendar, MapPin, Hash, Package } from 'lucide-react';
+import { Search, CornerDownLeft, User, Calendar, MapPin, Hash, Package, AlertTriangle } from 'lucide-react';
 
 interface MasterSearchProps {
   items: InventoryItem[];
@@ -45,9 +45,16 @@ const MasterSearch: React.FC<MasterSearchProps> = ({ items = [] }) => {
     );
   }, [items, query]);
 
+  const getDaysRemaining = (destroyDate: string) => {
+    const today = new Date();
+    const expiry = new Date(destroyDate);
+    const diffTime = expiry.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
+  };
+
   return (
     <div className="w-full mt-6 md:mt-12 mb-16 md:mb-24 px-0">
-      {/* Floating Command Bar */}
       <div className={`max-w-3xl mx-auto glass rounded-2xl md:rounded-[2rem] p-2 md:p-3 transition-all duration-500 relative z-30 ${isFocused ? 'ring-2 ring-violet-500/50 shadow-[0_0_60px_rgba(139,92,246,0.3)] border-violet-500/30' : ''}`}>
         <div className="flex items-center gap-3 md:gap-5 px-3 md:px-6">
           <Search className={`w-5 h-5 md:w-6 md:h-6 transition-all duration-300 ${isFocused ? 'text-violet-400 scale-110' : 'text-zinc-500'}`} />
@@ -63,7 +70,6 @@ const MasterSearch: React.FC<MasterSearchProps> = ({ items = [] }) => {
         </div>
       </div>
 
-      {/* Results Dropdown Style */}
       {query && (
         <div className="max-w-3xl mx-auto mt-4 animate-in slide-in-from-top-4 duration-500">
           <div className="glass rounded-2xl md:rounded-[2.5rem] border-white/10 overflow-hidden shadow-[0_30px_100px_rgba(0,0,0,0.8)]">
@@ -73,42 +79,52 @@ const MasterSearch: React.FC<MasterSearchProps> = ({ items = [] }) => {
             </div>
             
             <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto overflow-x-hidden">
-              {results.map((item) => (
-                <div key={item.id} className="p-4 md:p-6 lg:p-8 hover:bg-white/[0.03] transition-all group cursor-default">
-                  <div className="flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4">
-                    <div className="flex items-start gap-3 md:gap-6 w-full min-w-0">
-                      <div className="w-10 h-10 md:w-14 md:h-14 flex-shrink-0 rounded-xl md:rounded-2xl bg-zinc-900 flex items-center justify-center border border-white/5 group-hover:border-violet-500/30 transition-colors shadow-inner">
-                        <User className="w-5 h-5 md:w-6 md:h-6 text-zinc-500 group-hover:text-violet-400 transition-colors" />
+              {results.map((item) => {
+                const daysLeft = getDaysRemaining(item.destroyDate);
+                return (
+                  <div key={item.id} className="p-4 md:p-6 lg:p-8 hover:bg-white/[0.03] transition-all group cursor-default">
+                    <div className="flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4">
+                      <div className="flex items-start gap-3 md:gap-6 w-full min-w-0">
+                        <div className="w-10 h-10 md:w-14 md:h-14 flex-shrink-0 rounded-xl md:rounded-2xl bg-zinc-900 flex items-center justify-center border border-white/5 group-hover:border-violet-500/30 transition-colors shadow-inner">
+                          <User className="w-5 h-5 md:w-6 md:h-6 text-zinc-500 group-hover:text-violet-400 transition-colors" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mb-1">
+                            <h4 className="text-sm md:text-lg font-black text-white italic tracking-tight uppercase truncate">{item.customerName}</h4>
+                            <span className={`px-2 py-0.5 rounded-lg text-[7px] md:text-[9px] font-black uppercase tracking-widest border whitespace-nowrap ${CATEGORY_COLORS[item.category] || 'border-zinc-800'}`}>
+                              {item.category}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap md:flex-row md:items-center gap-2 md:gap-6 text-[9px] md:text-xs font-bold text-zinc-500 tracking-wider">
+                            <span className="flex items-center gap-1.5"><Hash className="w-3 md:w-3.5 h-3 md:h-3.5 text-zinc-700" /> {item.accountNumber}</span>
+                            <span className="flex items-center gap-1.5"><Calendar className="w-3 md:w-3.5 h-3 md:h-3.5 text-zinc-700" /> {item.receiveDate}</span>
+                            <span className="flex items-center gap-1.5"><MapPin className="w-3 md:w-3.5 h-3 md:h-3.5 text-zinc-700" /> {item.address}</span>
+                          </div>
+                          {/* Localized destruction notice */}
+                          {!item.isDelivered && (
+                            <div className="mt-3 flex items-center gap-2 text-rose-500/80 font-bold text-[10px] uppercase italic animate-pulse">
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>{daysLeft} দিন পর আপনার আইটেমটি ধ্বংস হবে</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mb-1">
-                          <h4 className="text-sm md:text-lg font-black text-white italic tracking-tight uppercase truncate">{item.customerName}</h4>
-                          <span className={`px-2 py-0.5 rounded-lg text-[7px] md:text-[9px] font-black uppercase tracking-widest border whitespace-nowrap ${CATEGORY_COLORS[item.category] || 'border-zinc-800'}`}>
-                            {item.category}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap md:flex-row md:items-center gap-2 md:gap-6 text-[9px] md:text-xs font-bold text-zinc-500 tracking-wider">
-                          <span className="flex items-center gap-1.5"><Hash className="w-3 md:w-3.5 h-3 md:h-3.5 text-zinc-700" /> {item.accountNumber}</span>
-                          <span className="flex items-center gap-1.5"><Calendar className="w-3 md:w-3.5 h-3 md:h-3.5 text-zinc-700" /> {item.receiveDate}</span>
-                          <span className="flex items-center gap-1.5"><MapPin className="w-3 md:w-3.5 h-3 md:h-3.5 text-zinc-700" /> {item.address}</span>
-                        </div>
+                      <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 w-full sm:w-auto mt-2 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5">
+                        {item.isDelivered ? (
+                          <div className="px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-[8px] md:text-[10px] font-black uppercase tracking-widest border border-emerald-500/20 whitespace-nowrap">
+                            DELIVERED
+                          </div>
+                        ) : (
+                          <div className="px-3 py-1 rounded-lg bg-violet-600/20 text-violet-400 text-[8px] md:text-[10px] font-black uppercase tracking-widest border border-violet-600/30 whitespace-nowrap">
+                            IN BRANCH
+                          </div>
+                        )}
+                        <span className="text-[8px] md:text-[10px] text-zinc-600 font-bold uppercase">{item.phoneNumber}</span>
                       </div>
-                    </div>
-                    <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 w-full sm:w-auto mt-2 sm:mt-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5">
-                      {item.isDelivered ? (
-                        <div className="px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-[8px] md:text-[10px] font-black uppercase tracking-widest border border-emerald-500/20 whitespace-nowrap">
-                          DELIVERED
-                        </div>
-                      ) : (
-                        <div className="px-3 py-1 rounded-lg bg-violet-600/20 text-violet-400 text-[8px] md:text-[10px] font-black uppercase tracking-widest border border-violet-600/30 whitespace-nowrap">
-                          PENDING
-                        </div>
-                      )}
-                      <span className="text-[8px] md:text-[10px] text-zinc-600 font-bold uppercase">{item.phoneNumber}</span>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               
               {results.length === 0 && (
                 <div className="p-16 text-center">

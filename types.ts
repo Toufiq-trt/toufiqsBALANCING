@@ -8,10 +8,11 @@ export interface InventoryItem {
   phoneNumber: string;
   address: string;
   receiveDate: string; // ISO string
-  destroyDate: string; // ISO string (3 years from receiveDate)
+  destroyDate: string; // ISO string (3 months from receiveDate)
   deliveryDate?: string; // ISO string if delivered
   category: InventoryCategory;
   isDelivered: boolean;
+  isTrashed?: boolean; // New property for Trash Bin persistence
   remarks?: string;
 }
 
