@@ -1,6 +1,6 @@
 
 import React, { useRef } from 'react';
-import * as XLSX from 'https://esm.sh/xlsx';
+import * as XLSX from 'xlsx';
 import { FileUp, Loader2 } from 'lucide-react';
 import { InventoryCategory, InventoryItem } from '../types';
 
@@ -13,7 +13,6 @@ const ExcelUpload: React.FC<ExcelUploadProps> = ({ category, onUpload }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = React.useState(false);
 
-  // Helper to find column values regardless of header casing or spaces
   const getVal = (row: any, ...keys: string[]) => {
     const rowKeys = Object.keys(row);
     for (const key of keys) {
@@ -44,7 +43,6 @@ const ExcelUpload: React.FC<ExcelUploadProps> = ({ category, onUpload }) => {
         }
 
         const mappedItems = data.map(row => {
-          // Normalize dates from Excel (XLSX sometimes provides serial numbers or strings)
           let rawDate = getVal(row, 'Receive Date', 'receiveDate', 'Date', 'Received');
           let formattedDate = new Date().toISOString().split('T')[0];
           
@@ -74,7 +72,7 @@ const ExcelUpload: React.FC<ExcelUploadProps> = ({ category, onUpload }) => {
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) {
         console.error("Error parsing excel:", err);
-        alert("Failed to parse Excel file. Ensure it's a valid .xlsx or .csv file.");
+        alert("Failed to parse Excel file.");
       } finally {
         setLoading(false);
       }
