@@ -117,8 +117,26 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
     e.preventDefault();
     if (!formData.accountNumber.trim()) return;
 
+    const formatPhoneNumber = (phone: string) => {
+      let cleaned = phone.replace(/\D/g, '');
+      if (!cleaned) return '';
+      
+      // If it starts with 01, it's a local BD number, add 88
+      if (cleaned.startsWith('01') && cleaned.length === 11) {
+        cleaned = '88' + cleaned;
+      } 
+      // If it starts with 1, it might be missing the 0, add 880
+      else if (cleaned.startsWith('1') && cleaned.length === 10) {
+        cleaned = '880' + cleaned;
+      }
+      // If it's already 8801..., it's fine
+      
+      return '+' + cleaned;
+    };
+
     const dataToSave = { 
       ...formData, 
+      phoneNumber: formatPhoneNumber(formData.phoneNumber),
       customerName: (formData.customerName || 'UNKNOWN').toUpperCase(), 
       address: (formData.address || '').toUpperCase(),
       receiveDate: formData.receiveDate || getToday()
@@ -232,7 +250,9 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                     <p className="text-[10px] font-mono text-zinc-500">#{item.accountNumber}</p>
                   </td>
                   <td className="px-10 py-8">
-                    <p className="text-sm text-zinc-300 font-bold">{item.phoneNumber || 'N/A'}</p>
+                    <p className="text-sm text-zinc-300 font-bold">
+                      {item.phoneNumber ? (item.phoneNumber.startsWith('+') ? item.phoneNumber : `+${item.phoneNumber.startsWith('88') ? '' : '88'}${item.phoneNumber}`) : 'N/A'}
+                    </p>
                     <p className="text-[10px] text-zinc-500 truncate max-w-[200px] uppercase">{item.address}</p>
                   </td>
                   <td className="px-10 py-8">
@@ -277,7 +297,9 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
             <div className="space-y-3 mb-5">
               <div className="flex items-center gap-3 text-zinc-400">
                 <Phone className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold">{item.phoneNumber || 'N/A'}</span>
+                <span className="text-[10px] font-bold">
+                  {item.phoneNumber ? (item.phoneNumber.startsWith('+') ? item.phoneNumber : `+${item.phoneNumber.startsWith('88') ? '' : '88'}${item.phoneNumber}`) : 'N/A'}
+                </span>
               </div>
               <div className="flex items-start gap-3 text-zinc-500">
                 <MapPin className="w-3.5 h-3.5 shrink-0" />

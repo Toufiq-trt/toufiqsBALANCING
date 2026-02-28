@@ -78,8 +78,18 @@ const StaffView: React.FC<StaffViewProps> = ({ items, user, onUpdateItem, onDeli
     selectedItems.forEach((item, index) => {
       setTimeout(() => {
         try {
-          const cleanPhone = (item.phoneNumber || '').replace(/\D/g, '');
+          let cleanPhone = (item.phoneNumber || '').replace(/\D/g, '');
           if (!cleanPhone) return;
+
+          // Ensure Bangladesh country code 88 is present
+          if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
+            cleanPhone = '88' + cleanPhone;
+          } else if (cleanPhone.startsWith('1') && cleanPhone.length === 10) {
+            cleanPhone = '880' + cleanPhone;
+          } else if (!cleanPhone.startsWith('88') && cleanPhone.length === 11) {
+            // Fallback for 11 digit numbers not starting with 0
+            cleanPhone = '88' + cleanPhone;
+          }
 
           const personalizedMessage = bulkMessage
             .replace(/{{name}}/gi, item.customerName || 'Customer')
@@ -145,7 +155,7 @@ const StaffView: React.FC<StaffViewProps> = ({ items, user, onUpdateItem, onDeli
     const tableData = activeItems.map(item => [
       item.customerName.toUpperCase(),
       item.category,
-      item.phoneNumber,
+      item.phoneNumber ? (item.phoneNumber.startsWith('+') ? item.phoneNumber : `+${item.phoneNumber.startsWith('88') ? '' : '88'}${item.phoneNumber}`) : 'N/A',
       item.address.toUpperCase()
     ]);
 
@@ -168,11 +178,22 @@ const StaffView: React.FC<StaffViewProps> = ({ items, user, onUpdateItem, onDeli
   };
 
   const handleCall = (phone: string) => {
-    window.location.href = `tel:${phone}`;
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
+      cleanPhone = '88' + cleanPhone;
+    } else if (cleanPhone.startsWith('1') && cleanPhone.length === 10) {
+      cleanPhone = '880' + cleanPhone;
+    }
+    window.location.href = `tel:+${cleanPhone}`;
   };
 
   const handleWhatsApp = (phone: string) => {
-    const cleanPhone = phone.replace(/\D/g, '');
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
+      cleanPhone = '88' + cleanPhone;
+    } else if (cleanPhone.startsWith('1') && cleanPhone.length === 10) {
+      cleanPhone = '880' + cleanPhone;
+    }
     window.open(`https://wa.me/${cleanPhone}`, '_blank');
   };
 
@@ -329,7 +350,9 @@ const StaffView: React.FC<StaffViewProps> = ({ items, user, onUpdateItem, onDeli
                           </div>
                           <div>
                             <p className="text-sm font-bold text-white uppercase italic">{item.customerName}</p>
-                            <p className="text-[10px] text-zinc-500 font-mono">{item.phoneNumber}</p>
+                            <p className="text-[10px] text-zinc-500 font-mono">
+                              {item.phoneNumber ? (item.phoneNumber.startsWith('+') ? item.phoneNumber : `+${item.phoneNumber.startsWith('88') ? '' : '88'}${item.phoneNumber}`) : 'N/A'}
+                            </p>
                           </div>
                         </div>
 
@@ -404,7 +427,9 @@ const StaffView: React.FC<StaffViewProps> = ({ items, user, onUpdateItem, onDeli
                   <td className="px-8 py-8 md:py-10">
                     <div className="flex items-center gap-3">
                       <div className="flex flex-col">
-                        <span className="text-sm font-mono text-zinc-300 font-bold">{item.phoneNumber}</span>
+                        <span className="text-sm font-mono text-zinc-300 font-bold">
+                          {item.phoneNumber ? (item.phoneNumber.startsWith('+') ? item.phoneNumber : `+${item.phoneNumber.startsWith('88') ? '' : '88'}${item.phoneNumber}`) : 'N/A'}
+                        </span>
                         {sentStatus[item.id] === 'sent' && (
                           <span className="text-[8px] text-emerald-500 font-black uppercase tracking-widest mt-1">Status: Sent</span>
                         )}
