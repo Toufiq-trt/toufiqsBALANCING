@@ -6,6 +6,8 @@ import InventoryTable from './components/InventoryTable';
 import MasterDataView from './components/MasterDataView';
 import ProfileSettings from './components/ProfileSettings';
 import DigitalStatsBoard from './components/DigitalStatsBoard';
+import AdminPortfolio from './components/AdminPortfolio';
+import StaffView from './components/StaffView';
 import Login from './components/Login';
 import { useInventoryStore } from './store';
 import { InventoryCategory, User } from './types';
@@ -63,7 +65,11 @@ const App: React.FC = () => {
 
   const handleLoginSuccess = (authenticatedUser: User) => {
     setUser(authenticatedUser);
-    localStorage.setItem('sv_user', JSON.stringify(authenticatedUser));
+    try {
+      localStorage.setItem('sv_user', JSON.stringify(authenticatedUser));
+    } catch (e) {
+      console.error('Local storage quota exceeded while saving user session', e);
+    }
     setCurrentPath('master-data'); 
     if (window.innerWidth < 1024) setIsSidebarOpen(false);
   };
@@ -80,6 +86,31 @@ const App: React.FC = () => {
     setShowProfileMenu(false);
     if (window.innerWidth < 1024) setIsSidebarOpen(false);
   };
+
+  // Inactivity Logout (15 minutes)
+  useEffect(() => {
+    if (!user) return;
+
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        handleLogout();
+        alert('Session expired due to 15 minutes of inactivity.');
+      }, 15 * 60 * 1000); // 15 minutes
+    };
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(event => document.addEventListener(event, resetTimer));
+
+    resetTimer();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(event => document.removeEventListener(event, resetTimer));
+    };
+  }, [user]);
 
   const renderContent = () => {
     if (isInitializing) {
@@ -115,8 +146,62 @@ const App: React.FC = () => {
     }
 
     if (user) {
+      if (user.role === 'staff') {
+        return (
+          <StaffView 
+            items={items} 
+            user={user} 
+            onUpdateItem={updateItem} 
+            onDeliverItem={deliverItem} 
+          />
+        );
+      }
+
       if (currentPath === 'master-data') return <MasterDataView items={activeItems} user={user} />;
-      if (currentPath === 'settings') return <ProfileSettings user={user} onUpdate={(u) => setUser({...user, ...u})} onClose={() => setCurrentPath('master-data')} />;
+      if (currentPath === 'settings') return (
+        <ProfileSettings 
+          user={user} 
+          onUpdate={(u: any) => {
+            const updatedUser = { ...user, ...u };
+            delete updatedUser.oldPassword; // Don't store this in the user object
+            setUser(updatedUser);
+            try {
+              localStorage.setItem('sv_user', JSON.stringify(updatedUser));
+            } catch (e) {
+              console.error('Local storage quota exceeded while updating user profile', e);
+              alert('Profile picture or data is too large to save locally. Please try a smaller image.');
+            }
+            
+            // Also save to a global overrides store for login persistence
+            const overrides = JSON.parse(localStorage.getItem('user_overrides') || '{}');
+            if (u.password) {
+              overrides[user.username.toLowerCase()] = u.password;
+              try {
+                localStorage.setItem('user_overrides', JSON.stringify(overrides));
+              } catch (e) {
+                console.error('Local storage quota exceeded while saving password override', e);
+              }
+
+              // Store the old password to detect "old password" login attempts
+              if (u.oldPassword) {
+                const oldOverrides = JSON.parse(localStorage.getItem('old_passwords_overrides') || '{}');
+                if (!oldOverrides[user.username.toLowerCase()]) {
+                  oldOverrides[user.username.toLowerCase()] = [];
+                }
+                if (!oldOverrides[user.username.toLowerCase()].includes(u.oldPassword)) {
+                  oldOverrides[user.username.toLowerCase()].push(u.oldPassword);
+                  localStorage.setItem('old_passwords_overrides', JSON.stringify(oldOverrides));
+                }
+              }
+            }
+          }} 
+          onClose={() => user.role === 'staff' ? setCurrentPath('dashboard') : setCurrentPath('master-data')} 
+        />
+      );
+
+      if (currentPath === 'admin-portfolio' && user.role === 'super_admin') {
+        return <AdminPortfolio />;
+      }
       
       if (currentPath === 'trash') {
         return (
@@ -248,27 +333,45 @@ const App: React.FC = () => {
 
               <div className="space-y-1">
                 <p className="px-4 text-[8px] font-black text-zinc-600 uppercase tracking-[0.2em] mb-3">Infrastructure</p>
-                <button onClick={() => { setCurrentPath('master-data'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === 'master-data' ? 'bg-violet-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
-                  <Layers className="w-3.5 h-3.5" /> MASTER DATA
-                </button>
-                <button onClick={() => { setCurrentPath('archive'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === 'archive' ? 'bg-violet-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
-                  <Archive className="w-3.5 h-3.5" /> DELIVERED
-                </button>
+                {user.role !== 'staff' && (
+                  <>
+                    <button onClick={() => { setCurrentPath('master-data'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === 'master-data' ? 'bg-violet-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
+                      <Layers className="w-3.5 h-3.5" /> MASTER DATA
+                    </button>
+                    <button onClick={() => { setCurrentPath('archive'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === 'archive' ? 'bg-violet-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
+                      <Archive className="w-3.5 h-3.5" /> DELIVERED
+                    </button>
+                  </>
+                )}
+                {user.role === 'staff' && (
+                  <div className="px-4 py-8 text-center">
+                    <p className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] italic">Staff Access Only</p>
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-1">
-                <p className="px-4 text-[8px] font-black text-zinc-600 uppercase tracking-[0.2em] mb-3">Clusters</p>
-                {(['DEBIT CARD', 'CHEQUE BOOK', 'DPS SLIP', 'PIN'] as InventoryCategory[]).map(cat => (
-                  <button key={cat} onClick={() => { setCurrentPath(`inventory-${cat}`); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === `inventory-${cat}` ? 'bg-zinc-800 text-white border border-white/10' : 'text-zinc-500 hover:bg-white/5'}`}>
-                    <span className="flex items-center gap-3 text-left"><Activity className="w-3.5 h-3.5" /> {cat}</span>
+              {user.role !== 'staff' && (
+                <div className="space-y-1">
+                  <p className="px-4 text-[8px] font-black text-zinc-600 uppercase tracking-[0.2em] mb-3">Clusters</p>
+                  {(['DEBIT CARD', 'CHEQUE BOOK', 'DPS SLIP', 'PIN'] as InventoryCategory[]).map(cat => (
+                    <button key={cat} onClick={() => { setCurrentPath(`inventory-${cat}`); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === `inventory-${cat}` ? 'bg-zinc-800 text-white border border-white/10' : 'text-zinc-500 hover:bg-white/5'}`}>
+                      <span className="flex items-center gap-3 text-left"><Activity className="w-3.5 h-3.5" /> {cat}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-white/5 space-y-1">
+                {user.role !== 'staff' && (
+                  <button onClick={() => { setCurrentPath('trash'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === 'trash' ? 'bg-rose-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
+                    <Trash2 className="w-3.5 h-3.5" /> TRASH BIN
                   </button>
-                ))}
-              </div>
-
-              <div className="pt-4 border-t border-white/5">
-                <button onClick={() => { setCurrentPath('trash'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === 'trash' ? 'bg-rose-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
-                  <Trash2 className="w-3.5 h-3.5" /> TRASH BIN
-                </button>
+                )}
+                {user.role === 'super_admin' && (
+                  <button onClick={() => { setCurrentPath('admin-portfolio'); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${currentPath === 'admin-portfolio' ? 'bg-violet-600 text-white shadow-lg' : 'text-zinc-500 hover:bg-white/5'}`}>
+                    <ShieldCheck className="w-3.5 h-3.5" /> ADMIN PORTFOLIO
+                  </button>
+                )}
               </div>
             </aside>
           </>

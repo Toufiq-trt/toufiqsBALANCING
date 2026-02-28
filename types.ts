@@ -24,7 +24,7 @@ export interface CategoryStats {
   balance: number;
 }
 
-export type UserRole = 'super_admin' | 'debit_admin' | 'cheque_admin' | 'pin_admin' | 'dps_admin' | 'user';
+export type UserRole = 'super_admin' | 'debit_admin' | 'cheque_admin' | 'pin_admin' | 'dps_admin' | 'staff' | 'user';
 
 export interface User {
   username: string;

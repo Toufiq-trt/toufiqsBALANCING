@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Lock, Loader2, ArrowLeft, ShieldCheck, CreditCard, BookOpen, Hash, Calculator } from 'lucide-react';
+import { ShieldAlert, Lock, Loader2, ArrowLeft, ShieldCheck, CreditCard, BookOpen, Hash, Calculator, User as UserIcon } from 'lucide-react';
 import { User, UserRole, InventoryCategory } from '../types';
 
 interface LoginProps {
@@ -23,6 +23,7 @@ const PROFILES: ProfileOption[] = [
   { id: 'cheque', name: 'CHEQUE BOOK', role: 'cheque_admin', category: 'CHEQUE BOOK', icon: <BookOpen className="w-12 h-12" />, color: 'from-emerald-600 to-teal-600' },
   { id: 'pin', name: 'PIN', role: 'pin_admin', category: 'PIN', icon: <Hash className="w-12 h-12" />, color: 'from-amber-600 to-orange-600' },
   { id: 'dps', name: 'DPS', role: 'dps_admin', category: 'DPS SLIP', icon: <Calculator className="w-12 h-12" />, color: 'from-fuchsia-600 to-pink-600' },
+  { id: 'staff', name: 'STAFF', role: 'staff', icon: <UserIcon className="w-12 h-12" />, color: 'from-zinc-600 to-slate-600' },
 ];
 
 const MASTER_SHEET_ID = '1h7Nmn8alVoWNE_vn3690-yWMvRcXs93_9VXONaAA4po';
@@ -33,6 +34,95 @@ const Login: React.FC<LoginProps> = ({ onLogin, onBack }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [sheetCredentials, setSheetCredentials] = useState<any[]>([]);
+  
+  // Reset flow states
+  const [resetStatus, setResetStatus] = useState<'none' | 'pending' | 'approved' | 'resetting'>('none');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Check reset status for selected profile
+  useEffect(() => {
+    if (!selectedProfile) {
+      setResetStatus('none');
+      return;
+    }
+
+    const checkResetStatus = () => {
+      const requests = JSON.parse(localStorage.getItem('reset_requests') || '[]');
+      const myRequest = requests.find((r: any) => r.username.toLowerCase() === selectedProfile.id.toLowerCase());
+      
+      if (myRequest) {
+        if (myRequest.status === 'approved') setResetStatus('resetting'); // Automatically show form if approved
+        else if (myRequest.status === 'pending') setResetStatus('pending');
+        else if (myRequest.status === 'pending_authorization') setResetStatus('pending');
+      } else {
+        setResetStatus('none');
+      }
+    };
+
+    checkResetStatus();
+    const interval = setInterval(checkResetStatus, 3000);
+    return () => clearInterval(interval);
+  }, [selectedProfile]);
+
+  const handleForgotPassword = () => {
+    if (!selectedProfile) return;
+    
+    const requests = JSON.parse(localStorage.getItem('reset_requests') || '[]');
+    const existing = requests.find((r: any) => r.username.toLowerCase() === selectedProfile.id.toLowerCase());
+    
+    if (existing) {
+      if (existing.status === 'approved') {
+        setResetStatus('resetting');
+        return;
+      }
+      alert('A reset request is already pending. Please wait for TOUFIQ to approve it.');
+      return;
+    }
+
+    const newRequest = {
+      username: selectedProfile.id,
+      status: 'pending',
+      requestedAt: new Date().toISOString()
+    };
+
+    localStorage.setItem('reset_requests', JSON.stringify([...requests, newRequest]));
+    setResetStatus('pending');
+    alert('PASSWORD RESET REQUESTED\n\nYour request has been logged. Please contact the System Creator (TOUFIQ) directly to verify your identity.');
+  };
+
+  const handleResetSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    if (!newPassword) {
+      setError('Password cannot be empty');
+      return;
+    }
+
+    // Check against old passwords history
+    const oldOverrides = JSON.parse(localStorage.getItem('old_passwords_overrides') || '{}');
+    const userOldPasswords = oldOverrides[selectedProfile?.id.toLowerCase() || ''] || [];
+    if (userOldPasswords.includes(newPassword)) {
+      setError('This password was used previously. Please choose a unique new password.');
+      return;
+    }
+
+    const requests = JSON.parse(localStorage.getItem('reset_requests') || '[]');
+    const updated = requests.map((r: any) => 
+      r.username.toLowerCase() === selectedProfile?.id.toLowerCase() 
+        ? { ...r, status: 'pending_authorization', newPassword } 
+        : r
+    );
+    
+    localStorage.setItem('reset_requests', JSON.stringify(updated));
+    setResetStatus('pending');
+    setNewPassword('');
+    setConfirmPassword('');
+    alert('New password submitted for authorization. Please wait for TOUFIQ to authorize it.');
+  };
 
   // Fetch credentials from "admin" sheet
   useEffect(() => {
@@ -67,17 +157,34 @@ const Login: React.FC<LoginProps> = ({ onLogin, onBack }) => {
 
     setTimeout(() => {
       const u = selectedProfile.id;
-      // Find matching credential from sheet
-      const cred = sheetCredentials.find(c => c.username && c.username.toLowerCase() === u);
+      // Check for old passwords first
+      const oldOverrides = JSON.parse(localStorage.getItem('old_passwords_overrides') || '{}');
+      const userOldPasswords = oldOverrides[u.toLowerCase()] || [];
+      if (userOldPasswords.includes(password)) {
+        setError('the password is old enter recent password');
+        setLoading(false);
+        return;
+      }
+
+      // Check local overrides first
+      const overrides = JSON.parse(localStorage.getItem('user_overrides') || '{}');
+      const localOverride = overrides[u.toLowerCase()];
       
       let isValid = false;
-      if (cred) {
-        const currentPass = cred.newpassword || cred.password;
-        isValid = password === currentPass;
+      if (localOverride) {
+        isValid = password === localOverride;
       } else {
-        // Fallback to hardcoded if sheet fails or not present
-        const fallbackPass = u === 'toufiq' ? 'toufiq786' : `${u}123`;
-        isValid = password === fallbackPass;
+        // Find matching credential from sheet
+        const cred = sheetCredentials.find(c => c.username && c.username.toLowerCase() === u);
+        
+        if (cred) {
+          const currentPass = cred.newpassword || cred.password;
+          isValid = password === currentPass;
+        } else {
+          // Fallback to hardcoded if sheet fails or not present
+          const fallbackPass = u === 'toufiq' ? 'toufiq786' : `${u}123`;
+          isValid = password === fallbackPass;
+        }
       }
 
       if (isValid) {
@@ -160,33 +267,87 @@ const Login: React.FC<LoginProps> = ({ onLogin, onBack }) => {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-8 md:p-10 space-y-6">
+            <form onSubmit={resetStatus === 'resetting' ? handleResetSubmit : handleSubmit} className="p-8 md:p-10 space-y-6">
               {error && (
                 <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-2xl text-center flex items-center justify-center gap-2 animate-shake">
                   {error}
                 </div>
               )}
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.3em] px-2">Security Key</label>
-                  <input 
-                    type="password"
-                    required
-                    autoFocus
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/5 rounded-2xl px-6 py-4 md:py-5 text-white font-mono text-lg outline-none focus:border-violet-500/50 transition-all"
-                    placeholder="••••••••"
-                  />
+              
+              {resetStatus === 'resetting' ? (
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.3em] px-2">New Password</label>
+                    <input 
+                      type="password"
+                      required
+                      autoFocus
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      className="w-full bg-zinc-900 border border-white/5 rounded-2xl px-6 py-4 md:py-5 text-white font-mono text-lg outline-none focus:border-violet-500/50 transition-all"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.3em] px-2">Confirm New Password</label>
+                    <input 
+                      type="password"
+                      required
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      className="w-full bg-zinc-900 border border-white/5 rounded-2xl px-6 py-4 md:py-5 text-white font-mono text-lg outline-none focus:border-violet-500/50 transition-all"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="w-full py-5 md:py-6 bg-emerald-600 text-white font-black rounded-2xl hover:bg-emerald-500 transition-all uppercase tracking-[0.2em] text-[10px] md:text-xs shadow-xl"
+                  >
+                    Save New Password
+                  </button>
                 </div>
-              </div>
-              <button 
-                type="submit" 
-                disabled={loading} 
-                className="w-full py-5 md:py-6 bg-violet-600 text-white font-black rounded-2xl hover:bg-violet-500 transition-all uppercase tracking-[0.2em] text-[10px] md:text-xs shadow-xl"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Execute Login'}
-              </button>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between px-2">
+                        <label className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.3em]">Security Key</label>
+                        {selectedProfile.id !== 'toufiq' && (
+                          <button 
+                            type="button"
+                            onClick={handleForgotPassword}
+                            className={`text-[9px] font-black uppercase tracking-widest transition-colors italic ${
+                              resetStatus === 'approved' ? 'text-emerald-500 hover:text-emerald-400' :
+                              resetStatus === 'pending' ? 'text-amber-500 cursor-not-allowed' :
+                              'text-violet-500 hover:text-violet-400'
+                            }`}
+                          >
+                            {resetStatus === 'approved' ? 'Reset Password Now' : 
+                             resetStatus === 'pending' ? 'Request Pending...' : 
+                             'Forgot Password?'}
+                          </button>
+                        )}
+                      </div>
+                      <input 
+                        type="password"
+                        required
+                        autoFocus
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        className="w-full bg-zinc-900 border border-white/5 rounded-2xl px-6 py-4 md:py-5 text-white font-mono text-lg outline-none focus:border-violet-500/50 transition-all"
+                        placeholder="••••••••"
+                      />
+                    </div>
+                  </div>
+                  <button 
+                    type="submit" 
+                    disabled={loading} 
+                    className="w-full py-5 md:py-6 bg-violet-600 text-white font-black rounded-2xl hover:bg-violet-500 transition-all uppercase tracking-[0.2em] text-[10px] md:text-xs shadow-xl"
+                  >
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Execute Login'}
+                  </button>
+                </>
+              )}
             </form>
           </div>
         </div>
